@@ -1,0 +1,106 @@
+name: LinaDroid OS Automated Build & Release
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # Standard GitHub Actions runners have limited disk space (~14GB free).
+      # This step frees up ~35GB+ of disk space by removing unused toolchains (Android, PHP, .NET, etc.).
+      # This is crucial for building a full 16GB Operating System image and compiling the kernel.
+      - name: Maximize Runner Disk Space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 8192
+          temp-reserve-mb: 2048
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+          remove-docker-images: 'true'
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            debootstrap \
+            lxc \
+            parted \
+            dosfstools \
+            udev \
+            grub-efi-amd64-bin \
+            grub-common \
+            binutils \
+            wget \
+            curl \
+            unzip \
+            xz-utils
+
+      - name: Execute LinaDroid OS Build Pipeline
+        run: |
+          # Elevate to sudo to allow debootstrap, chroot and partition loops
+          chmod +x build_os.sh rootfs/build_rootfs.sh android/build_android_container.sh packages/linapkg
+          sudo ./build_os.sh
+
+      # Compress the 16GB raw image. Since most of the image consists of empty blocks,
+      # xz compression will compress it down to ~1.2GB - 2.0GB, making it easy to download.
+      - name: Compress OS Disk Image
+        run: |
+          echo "Compressing OS image with xz (multi-threaded)..."
+          xz -z -8 -T 0 linadroid-os-v1.0.img
+          ls -lh linadroid-os-v1.0.img.xz
+
+      # Automatically generate a release tag based on run number or git tag
+      - name: Generate Release Tag
+        id: tag
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          else
+            echo "TAG_NAME=v1.0-build-${{ github.run_number }}" >> $GITHUB_OUTPUT
+          fi
+
+      # Automatically upload the compressed OS image to a new GitHub Release
+      - name: Create GitHub Release & Upload Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.TAG_NAME }}
+          name: LinaDroid OS Release ${{ steps.tag.outputs.TAG_NAME }}
+          draft: false
+          prerelease: false
+          files: |
+            linadroid-os-v1.0.img.xz
+          body: |
+            ## LinaDroid OS Automated Release (${{ steps.tag.outputs.TAG_NAME }})
+
+            This release was automatically compiled and packaged by GitHub Actions.
+
+            ### System Features Included:
+            * **Shared Linux Kernel v6.6 LTS** with full Android Binder, Ashmem/Memfd, and LXC virtualization enabled.
+            * **Debian 12 "Bookworm" Host** running natively with standard `apt` package manager support.
+            * **Integrated Android Runtime Subsystem** (AOSP/LineageOS) running directly on host CPU/RAM (LXC Container).
+            * **Native Graphics Rendering**: SurfaceFlinger renders directly to DRM/KMS (`/dev/dri/card0`) with zero emulation or display server overhead (No Wayland/X11).
+            * **Built-in Google Play Store & Google Play Services** with automated GApps injection.
+            * **Unified Package Management (`linapkg`)** allowing one-line installations of both Debian packages (`.deb`) and Android Apps (`.apk`).
+
+            ### Booting & Installation Guide:
+            1. **Decompress the image**:
+               `xz -d linadroid-os-v1.0.img.xz`
+            2. **Flash to USB/SD Card (for bare-metal PC/SBC)**:
+               `sudo dd if=linadroid-os-v1.0.img of=/dev/sdX bs=4M status=progress conv=fsync`
+               *(Replace `/dev/sdX` with your targeted USB device block)*
+            3. **Run in QEMU Virtual Machine**:
+               `qemu-system-x86_64 -enable-kvm -m 4G -bios /usr/share/ovmf/OVMF.fd -device virtio-vga-gl,hostgpu=on,x-vga=on -display gtk,gl=on -drive file=linadroid-os-v1.0.img,format=raw,media=disk`
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,187 @@
+#!/bin/bash
+# =====================================================================
+# LinaDroid OS - Unified Package Manager ('linapkg')
+# Managing both Debian Packages (.deb / Apt) and Android Apps (.apk)
+# directly from a unified command line!
+# =====================================================================
+
+# Color definitions
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
+
+# Config
+ADB_TARGET="127.0.0.1:5555"
+
+# Print banner
+banner() {
+    echo -e "${BLUE}=====================================================${NC}"
+    echo -e "${GREEN}             LinaDroid OS Unified Package Manager     ${NC}"
+    echo -e "${GREEN}                  -- linapkg v1.0 --                 ${NC}"
+    echo -e "${BLUE}=====================================================${NC}"
+}
+
+# Print help
+show_help() {
+    banner
+    echo "Usage: linapkg [command] [package_name / apk_file]"
+    echo ""
+    echo "Commands:"
+    echo "  install [pkg / file.apk] Install a Debian Linux package OR an Android APK"
+    echo "  uninstall [pkg / id]     Uninstall a Debian package OR an Android App"
+    echo "  search [query]           Search for a Debian package in repositories"
+    echo "  list [linux / android]   List installed Debian packages or Android Apps"
+    echo "  update                   Update Debian package repositories"
+    echo "  adb-connect              Manually establish/check connection to Android Container"
+    echo "  help                     Show this help guide"
+    echo ""
+    echo "Examples:"
+    echo "  linapkg install git               # Installs standard Linux package via apt"
+    echo "  linapkg install firefox.apk       # Installs Android App into container"
+    echo "  linapkg uninstall git             # Removes Linux git package"
+    echo "  linapkg uninstall org.mozilla.ff  # Uninstalls Android App package"
+    echo ""
+}
+
+# Connect to internal Android ADB
+ensure_adb_connected() {
+    # Check if ADB is installed on host
+    if ! command -v adb &> /dev/null; then
+        echo -e "${YELLOW}[linapkg] Installing adb package on Debian host...${NC}"
+        sudo apt-get install -y adb &> /dev/null
+    fi
+
+    # Check connection
+    adb_status=$(adb devices | grep "$ADB_TARGET")
+    if [ -z "$adb_status" ]; then
+        echo -e "${YELLOW}[linapkg] Establishing connection to Android container (${ADB_TARGET})...${NC}"
+        adb connect "$ADB_TARGET" &> /dev/null
+        sleep 1
+        adb_status=$(adb devices | grep "$ADB_TARGET")
+        if [ -z "$adb_status" ]; then
+            echo -e "${RED}[linapkg] Error: Could not connect to Android Container ADB.${NC}"
+            echo -e "${RED}          Ensure the Android LXC Container is running.${NC}"
+            return 1
+        fi
+    fi
+    return 0
+}
+
+# Commands
+case "$1" in
+    install)
+        if [ -z "$2" ]; then
+            echo -e "${RED}Error: Please specify what to install.${NC}"
+            exit 1
+        fi
+        
+        target="$2"
+        # Check if the target is an APK file
+        if [[ "$target" == *.apk ]]; then
+            echo -e "${GREEN}[linapkg] Detected Android APK file: $target${NC}"
+            if [ ! -f "$target" ]; then
+                echo -e "${RED}Error: File '$target' not found!${NC}"
+                exit 1
+            fi
+            
+            echo -e "${BLUE}[linapkg] Initializing Android install channel...${NC}"
+            ensure_adb_connected
+            if [ $? -ne 0 ]; then exit 1; fi
+            
+            echo -e "${YELLOW}[linapkg] Pushing and installing '$target' directly to the Android subsystem...${NC}"
+            adb -s "$ADB_TARGET" install -r "$target"
+            if [ $? -eq 0 ]; then
+                echo -e "${GREEN}[linapkg] Success! App installed successfully on LinaDroid OS!${NC}"
+            else
+                echo -e "${RED}[linapkg] Error: APK installation failed.${NC}"
+                exit 1
+            fi
+        else
+            echo -e "${GREEN}[linapkg] Detected Linux Package: $target${NC}"
+            echo -e "${BLUE}[linapkg] Running native package installation via apt-get...${NC}"
+            sudo apt-get install -y "$target"
+            if [ $? -eq 0 ]; then
+                echo -e "${GREEN}[linapkg] Success! Linux package '$target' installed natively!${NC}"
+            else
+                echo -e "${RED}[linapkg] Error: apt installation failed.${NC}"
+                exit 1
+            fi
+        fi
+        ;;
+        
+    uninstall|remove)
+        if [ -z "$2" ]; then
+            echo -e "${RED}Error: Please specify package/app to uninstall.${NC}"
+            exit 1
+        fi
+        
+        target="$2"
+        # Check if it looks like an Android package identifier (e.g. com.example.app)
+        if [[ "$target" =~ ^[a-zA-Z0-9_]+\.[a-zA-Z0-9_]+\.[a-zA-Z0-9_.-]+$ ]]; then
+            echo -e "${GREEN}[linapkg] Detected Android package ID: $target${NC}"
+            ensure_adb_connected
+            if [ $? -ne 0 ]; then exit 1; fi
+            
+            echo -e "${YELLOW}[linapkg] Uninstalling Android app '$target' from container...${NC}"
+            adb -s "$ADB_TARGET" uninstall "$target"
+            if [ $? -eq 0 ]; then
+                echo -e "${GREEN}[linapkg] Success! Android App uninstalled!${NC}"
+            else
+                echo -e "${RED}[linapkg] Error: Failed to uninstall Android package.${NC}"
+                exit 1
+            fi
+        else
+            echo -e "${GREEN}[linapkg] Detected Linux Package: $target${NC}"
+            echo -e "${BLUE}[linapkg] Uninstalling Linux package via apt-get...${NC}"
+            sudo apt-get remove -y "$target"
+            if [ $? -eq 0 ]; then
+                echo -e "${GREEN}[linapkg] Success! Linux package '$target' uninstalled!${NC}"
+            else
+                echo -e "${RED}[linapkg] Error: Failed to uninstall Linux package.${NC}"
+                exit 1
+            fi
+        fi
+        ;;
+        
+    search)
+        if [ -z "$2" ]; then
+            echo -e "${RED}Error: Please enter a search query.${NC}"
+            exit 1
+        fi
+        echo -e "${BLUE}[linapkg] Searching Linux package repositories for '$2'...${NC}"
+        apt-cache search "$2"
+        ;;
+        
+    list)
+        type="$2"
+        if [ "$type" == "android" ]; then
+            echo -e "${GREEN}[linapkg] Listing all installed Android apps...${NC}"
+            ensure_adb_connected
+            if [ $? -ne 0 ]; then exit 1; fi
+            adb -s "$ADB_TARGET" shell pm list packages | cut -d':' -f2
+        elif [ "$type" == "linux" ] || [ -z "$type" ]; then
+            echo -e "${GREEN}[linapkg] Listing all installed Linux (dpkg) packages...${NC}"
+            dpkg -l | grep -E '^ii' | awk '{print $2 " " $3}' | column -t
+        else
+            echo -e "${RED}Error: Invalid list command. Use 'linapkg list linux' or 'linapkg list android'${NC}"
+            exit 1
+        fi
+        ;;
+        
+    update)
+        echo -e "${BLUE}[linapkg] Updating Debian Host system repositories...${NC}"
+        sudo apt-get update
+        ;;
+        
+    adb-connect)
+        echo -e "${BLUE}[linapkg] Checking ADB link...${NC}"
+        ensure_adb_connected
+        ;;
+        
+    help|""|*)
+        show_help
+        ;;
+esac
+exit 0

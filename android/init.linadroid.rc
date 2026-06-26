@@ -1,0 +1,51 @@
+# =====================================================================
+# LinaDroid OS - Custom Android Init Configuration
+# This file overrides or complements the standard Android init.rc
+# to ensure compatibility inside the LinaDroid LXC container.
+# =====================================================================
+
+on early-init
+    # Mount essential file systems inside Android container
+    mount debugfs debugfs /sys/kernel/debug mode=0755
+    
+on init
+    # Configure loopback network interface
+    setprop ro.radio.noril yes
+    setprop ro.carrier unknown
+    setprop ro.config.low_ram false
+    
+    # Enable ADB over TCP (Internal Localhost connection)
+    # This allows the host Debian system to communicate with the Android container
+    # and install APKs via 'linapkg' using local adb socket.
+    setprop service.adb.tcp.port 5555
+    setprop persist.adb.tcp.port 5555
+
+on boot
+    # Configure Graphics Framework to use the DRM/KMS device directly
+    setprop ro.hardware.gralloc gbm
+    setprop ro.hardware.hwcomposer drm
+    setprop ro.hardware.egl mesa
+    setprop debug.sf.nobootanimation 1
+    
+    # Setup DNS server (forward from host)
+    setprop net.dns1 8.8.8.8
+    setprop net.dns2 1.1.1.1
+
+# Ensure surfaceflinger starts and outputs directly to DRM/KMS card0
+service surfaceflinger /system/bin/surfaceflinger
+    class core animation
+    user system
+    group graphics drmrpc readproc
+    onrestart restart zygote
+    writepid /dev/stune/foreground/tasks
+
+# Start Android's ADB Daemon inside container
+service adbd /apex/com.android.adbd/bin/adbd --root_seclabel=u:r:su:s0
+    class core
+    socket adbd stream 660 system system
+    disabled
+    seclabel u:r:adbd:s0
+
+# Trigger ADB start on boot
+on property:sys.boot_completed=1
+    start adbd
