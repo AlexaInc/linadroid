@@ -1,0 +1,12 @@
+# LinaDroid Build Outputs
+build_tmp/
+rootfs_tmp/
+linadroid-os-v1.0.img
+
+# Node / Package manager temp files
+.github/workflows/*.xz
+*.zip
+*.tar.xz
+*.ko
+*.img
+*.xz

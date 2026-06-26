@@ -8,17 +8,18 @@
 
 set -e
 
-# Configuration
-BUILD_DIR="/tmp/linadroid-build"
-ROOTFS_DIR="/tmp/linadroid-rootfs"
+# Dynamically locate the repository root directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# --- CRITICAL SPACE RESCUE FIX ---
+# Instead of using '/tmp' (which is often mapped to a small RAM disk or size-restricted tmpfs),
+# we place the build and rootfs directories directly in the workspace directory.
+# This grants the build system access to the full 35GB+ of disk space maximized by GitHub Actions!
+BUILD_DIR="${SCRIPT_DIR}/build_tmp"
+ROOTFS_DIR="${SCRIPT_DIR}/rootfs_tmp"
+
 OUTPUT_IMAGE="linadroid-os-v1.0.img"
 KERNEL_VERSION="6.6.21"
-
-# --- SMART IMAGE ALLOCATION ---
-# We make the image as small as possible (5GB) to contain the files.
-# When the user boots LinaDroid OS on their physical drive (8GB, 32GB, 128GB+),
-# the integrated 'linadroid-resize' service executes on FIRST BOOT to auto-expand
-# the partition and filesystem to fill 100% of the physical media!
 IMAGE_SIZE_GB=5 
 
 # Color definitions
@@ -66,8 +67,9 @@ else
     echo -e "${GREEN}All host dependencies met!${NC}"
 fi
 
-# Create workspace directory
+# Create workspace directories
 mkdir -p "$BUILD_DIR"
+mkdir -p "$ROOTFS_DIR"
 
 # Step 2: Custom Linux Kernel Preparation
 echo -e "\n${BLUE}[STEP 2] Preparing Custom Linux Kernel (with Android Support)...${NC}"
@@ -99,15 +101,15 @@ else
     echo -e "${YELLOW}Extracting kernel sources...${NC}"
     tar -xf "$BUILD_DIR/linux-${KERNEL_VERSION}.tar.xz" -C "$BUILD_DIR"
     
-    # CRITICAL FIX 1: Generate the standard base config for x86_64 architecture first
+    # Generate the standard base config for x86_64 architecture first
     echo -e "${YELLOW}Generating standard base x86_64 kernel config...${NC}"
     make -C "$BUILD_DIR/linux-${KERNEL_VERSION}" x86_64_defconfig
     
-    # CRITICAL FIX 2: Append our LinaDroid custom kernel parameters to the generated config
+    # Append our LinaDroid custom kernel parameters to the generated config
     echo -e "${YELLOW}Merging LinaDroid custom configs (Binder, Ashmem, GMS)...${NC}"
     cat kernel/kernel.config >> "$BUILD_DIR/linux-${KERNEL_VERSION}/.config"
     
-    # CRITICAL FIX 3: Run 'olddefconfig' to automatically resolve dependencies and answer
+    # Run 'olddefconfig' to automatically resolve dependencies and answer
     # all prompts with default choices. No interactive terminals needed!
     echo -e "${YELLOW}Validating configuration integrity and solving dependencies...${NC}"
     make -C "$BUILD_DIR/linux-${KERNEL_VERSION}" olddefconfig

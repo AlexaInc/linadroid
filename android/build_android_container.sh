@@ -8,15 +8,15 @@
 
 set -e
 
-# Configuration
-ROOTFS_DIR="/tmp/linadroid-rootfs"
-LXC_ANDROID_DIR="$ROOTFS_DIR/var/lib/lxc/linadroid-runtime"
-LXC_ROOTFS="$LXC_ANDROID_DIR/rootfs"
-TEMP_GAPPS_DIR="/tmp/linadroid-gapps"
-
 # Dynamically locate the repository root directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
+
+# --- SPACE RESCUE PATH ENFORCEMENT ---
+ROOTFS_DIR="${ROOTFS_DIR:-${REPO_DIR}/rootfs_tmp}"
+LXC_ANDROID_DIR="$ROOTFS_DIR/var/lib/lxc/linadroid-runtime"
+LXC_ROOTFS="$LXC_ANDROID_DIR/rootfs"
+TEMP_GAPPS_DIR="/tmp/linadroid-gapps"
 
 # GApps Configuration (Google Play Services / Play Store)
 # MindTheGapps 11.0 (Android 11) is selected as it matches the stable container images

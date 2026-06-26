@@ -6,15 +6,17 @@
 
 set -e
 
-# Configuration
+# Configuration (Reads from environment if called by master build_os.sh, else defaults)
 DISTRO="bookworm"
 MIRROR="http://deb.debian.org/debian"
-ROOTFS_DIR="/tmp/linadroid-rootfs"
 ARCH="amd64" # Default to x86_64, can be set to "arm64" for mobile/SBC hardware
 
 # Dynamically locate the repository root directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
+
+# --- SPACE RESCUE PATH ENFORCEMENT ---
+ROOTFS_DIR="${ROOTFS_DIR:-${REPO_DIR}/rootfs_tmp}"
 
 # Color codes for output
 GREEN='\033[0;32m'
