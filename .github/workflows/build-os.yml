@@ -13,12 +13,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      # Standard GitHub Actions runners have limited disk space (~14GB free).
-      # This step frees up ~35GB+ of disk space by removing unused toolchains (Android, PHP, .NET, etc.).
-      # This is crucial for building a full 16GB Operating System image and compiling the kernel.
+      # CRITICAL FIX: The "maximize-build-space" action resizes the virtual disk partitions.
+      # It MUST be run BEFORE "actions/checkout" so that the checked-out files are not deleted 
+      # or unmounted during the partition resizing process.
       - name: Maximize Runner Disk Space
         uses: easimon/maximize-build-space@master
         with:
@@ -29,6 +26,10 @@ jobs:
           remove-haskell: 'true'
           remove-codeql: 'true'
           remove-docker-images: 'true'
+
+      # Now it is safe to checkout the code onto the newly maximized disk partition.
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
       - name: Install System Dependencies
         run: |
@@ -49,12 +50,13 @@ jobs:
 
       - name: Execute LinaDroid OS Build Pipeline
         run: |
-          # Elevate to sudo to allow debootstrap, chroot and partition loops
+          # Elevate permissions to make scripts executable
           chmod +x build_os.sh rootfs/build_rootfs.sh android/build_android_container.sh packages/linapkg
+          # Run the main orchestrator as root
           sudo ./build_os.sh
 
-      # Compress the 16GB raw image. Since most of the image consists of empty blocks,
-      # xz compression will compress it down to ~1.2GB - 2.0GB, making it easy to download.
+      # Compress the 5GB raw image. Since most of the image consists of empty blocks,
+      # xz compression will compress it down to ~1.2GB - 1.5GB, making it easy to download.
       - name: Compress OS Disk Image
         run: |
           echo "Compressing OS image with xz (multi-threaded)..."
