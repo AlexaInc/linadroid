@@ -13,7 +13,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # CRITICAL FIX: The "maximize-build-space" action resizes the virtual disk partitions.
+      # The "maximize-build-space" action resizes the virtual disk partitions.
       # It MUST be run BEFORE "actions/checkout" so that the checked-out files are not deleted 
       # or unmounted during the partition resizing process.
       - name: Maximize Runner Disk Space
@@ -32,7 +32,6 @@ jobs:
         uses: actions/checkout@v4
 
       # Install full kernel development and system tools.
-      # Added libelf-dev, libssl-dev, bc, bison, flex, and build-essential to solve kernel compilation errors!
       - name: Install System Dependencies
         run: |
           sudo apt-get update
@@ -64,12 +63,17 @@ jobs:
           # Run the main orchestrator as root
           sudo ./build_os.sh
 
-      # Compress the 5GB raw image. Since most of the image consists of empty blocks,
-      # xz compression will compress it down to ~1.2GB - 1.5GB, making it easy to download.
+      # CRITICAL PERMISSIONS FIX: Since "build_os.sh" was executed as sudo (root), the 5GB output image 
+      # "linadroid-os-v1.0.img" is owned by the root user.
+      # Running xz with 'sudo' ensures the compression tool has permission to access the file and set attributes.
+      # We then chown the compressed asset back to the local runner user ($(id -u)) so that the GitHub Release 
+      # action has permission to read and upload it!
       - name: Compress OS Disk Image
         run: |
-          echo "Compressing OS image with xz (multi-threaded)..."
-          xz -z -8 -T 0 linadroid-os-v1.0.img
+          echo "Compressing OS image with xz (multi-threaded as root)..."
+          sudo xz -z -8 -T 0 linadroid-os-v1.0.img
+          echo "Re-claiming file ownership for the GitHub Actions runner..."
+          sudo chown $(id -u):$(id -g) linadroid-os-v1.0.img.xz
           ls -lh linadroid-os-v1.0.img.xz
 
       # Automatically generate a release tag based on run number or git tag
