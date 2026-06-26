@@ -31,10 +31,19 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      # Install full kernel development and system tools.
+      # Added libelf-dev, libssl-dev, bc, bison, flex, and build-essential to solve kernel compilation errors!
       - name: Install System Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            build-essential \
+            libelf-dev \
+            libssl-dev \
+            bc \
+            bison \
+            flex \
+            rsync \
             debootstrap \
             lxc \
             parted \

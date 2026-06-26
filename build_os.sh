@@ -79,10 +79,12 @@ if [ "$DRY_RUN" = true ]; then
         echo -e "${RED}Error: Kernel configuration file 'kernel/kernel.config' not found!${NC}"
         exit 1
     fi
-    echo -e "${YELLOW}[DRY-RUN] Simulating Kernel compilation flow...${NC}"
+    echo -e "${YELLOW}[DRY-RUN] Simulating Kernel config merging & compilation flow...${NC}"
     echo "  >> wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-${KERNEL_VERSION}.tar.xz"
     echo "  >> tar -xf linux-${KERNEL_VERSION}.tar.xz -C $BUILD_DIR/"
-    echo "  >> cp kernel/kernel.config $BUILD_DIR/linux-${KERNEL_VERSION}/.config"
+    echo "  >> make -C $BUILD_DIR/linux-${KERNEL_VERSION} x86_64_defconfig"
+    echo "  >> cat kernel/kernel.config >> $BUILD_DIR/linux-${KERNEL_VERSION}/.config"
+    echo "  >> make -C $BUILD_DIR/linux-${KERNEL_VERSION} olddefconfig"
     echo "  >> make -C $BUILD_DIR/linux-${KERNEL_VERSION}/ -j\$(nproc) bzImage modules"
     echo "  >> cp $BUILD_DIR/linux-${KERNEL_VERSION}/arch/x86/boot/bzImage $ROOTFS_DIR/boot/vmlinuz-linadroid"
     echo "  >> make -C $BUILD_DIR/linux-${KERNEL_VERSION}/ modules_install INSTALL_MOD_PATH=$ROOTFS_DIR"
@@ -97,8 +99,18 @@ else
     echo -e "${YELLOW}Extracting kernel sources...${NC}"
     tar -xf "$BUILD_DIR/linux-${KERNEL_VERSION}.tar.xz" -C "$BUILD_DIR"
     
-    echo -e "${YELLOW}Applying LinaDroid OS custom kernel configs...${NC}"
-    cp kernel/kernel.config "$BUILD_DIR/linux-${KERNEL_VERSION}/.config"
+    # CRITICAL FIX 1: Generate the standard base config for x86_64 architecture first
+    echo -e "${YELLOW}Generating standard base x86_64 kernel config...${NC}"
+    make -C "$BUILD_DIR/linux-${KERNEL_VERSION}" x86_64_defconfig
+    
+    # CRITICAL FIX 2: Append our LinaDroid custom kernel parameters to the generated config
+    echo -e "${YELLOW}Merging LinaDroid custom configs (Binder, Ashmem, GMS)...${NC}"
+    cat kernel/kernel.config >> "$BUILD_DIR/linux-${KERNEL_VERSION}/.config"
+    
+    # CRITICAL FIX 3: Run 'olddefconfig' to automatically resolve dependencies and answer
+    # all prompts with default choices. No interactive terminals needed!
+    echo -e "${YELLOW}Validating configuration integrity and solving dependencies...${NC}"
+    make -C "$BUILD_DIR/linux-${KERNEL_VERSION}" olddefconfig
     
     echo -e "${BLUE}Compiling Kernel (bzImage and modules)... This may take up to 30 minutes!${NC}"
     make -C "$BUILD_DIR/linux-${KERNEL_VERSION}" -j$(nproc) bzImage modules
