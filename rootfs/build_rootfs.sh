@@ -12,6 +12,10 @@ MIRROR="http://deb.debian.org/debian"
 ROOTFS_DIR="/tmp/linadroid-rootfs"
 ARCH="amd64" # Default to x86_64, can be set to "arm64" for mobile/SBC hardware
 
+# Dynamically locate the repository root directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(dirname "$SCRIPT_DIR")"
+
 # Color codes for output
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
@@ -159,6 +163,7 @@ export DEBIAN_FRONTEND=noninteractive
 echo "Updating repositories..."
 apt-get update
 
+# Removed tinyalsa package because it is not available in standard Debian Bookworm repositories
 echo "Installing core packages: lxc, adb, graphics drivers, audio system, parted..."
 apt-get install -y \
     lxc \
@@ -177,7 +182,6 @@ apt-get install -y \
     htop \
     mesa-vulkan-drivers \
     libgles2-mesa \
-    tinyalsa \
     alsa-utils \
     parted \
     fdisk
@@ -190,12 +194,17 @@ systemctl enable linadroid-resize.service
 # Configure root account password (default: linadroid)
 echo "root:linadroid" | chpasswd
 
+# Create required LXC & Docker groups in case package-setup has not initialized them yet
+groupadd -f lxc
+groupadd -f docker
+
 # Create primary user 'droid'
 useradd -m -s /bin/bash droid
 echo "droid:linadroid" | chpasswd
-usermod -aG sudo,audio,video,lxc,docker,plugdev droid
+usermod -aG sudo,audio,video,lxc,docker droid
 
-# Allow passwordless sudo for user droid
+# Ensure sudoers.d directory exists and grant passwordless privileges
+mkdir -p /etc/sudoers.d
 echo "droid ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/droid
 
 echo "Debian userland configurations complete!"
@@ -209,8 +218,8 @@ rm "$ROOTFS_DIR/tmp/chroot_setup.sh"
 # 5. Injecting Unified Package Manager ('linapkg') and Android LXC Config
 echo -e "${BLUE}4. Injecting LinaDroid custom package manager and configurations...${NC}"
 
-# Copy the linapkg script directly to host's usr/local/bin
-cp /home/user/packages/linapkg "$ROOTFS_DIR/usr/local/bin/linapkg"
+# Copy the linapkg script directly from portable repository path to host's usr/local/bin
+cp "$REPO_DIR/packages/linapkg" "$ROOTFS_DIR/usr/local/bin/linapkg"
 chmod +x "$ROOTFS_DIR/usr/local/bin/linapkg"
 
 # Set up physical container paths inside rootfs
@@ -219,8 +228,8 @@ mkdir -p "$LXC_ANDROID_DIR"
 mkdir -p "$LXC_ANDROID_DIR/rootfs"
 mkdir -p "$ROOTFS_DIR/var/shared/linadroid" # Shared host-container directory
 
-# Copy LXC configuration
-cp /home/user/android/linadroid-lxc.conf "$LXC_ANDROID_DIR/config"
+# Copy LXC configuration from portable repository path
+cp "$REPO_DIR/android/linadroid-lxc.conf" "$LXC_ANDROID_DIR/config"
 
 echo -e "${GREEN}LinaDroid Host RootFS successfully built and configured at '$ROOTFS_DIR'!${NC}"
 echo -e "${GREEN}Ready for Android subsystem injection and imaging.${NC}"

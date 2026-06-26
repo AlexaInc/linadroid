@@ -14,6 +14,10 @@ LXC_ANDROID_DIR="$ROOTFS_DIR/var/lib/lxc/linadroid-runtime"
 LXC_ROOTFS="$LXC_ANDROID_DIR/rootfs"
 TEMP_GAPPS_DIR="/tmp/linadroid-gapps"
 
+# Dynamically locate the repository root directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(dirname "$SCRIPT_DIR")"
+
 # GApps Configuration (Google Play Services / Play Store)
 # MindTheGapps 11.0 (Android 11) is selected as it matches the stable container images
 GAPPS_URL="https://archive.org/download/MindTheGapps/MindTheGapps-11.0.0-x86_64-20210412_124103.zip"
@@ -82,7 +86,6 @@ if [ ! -f "$GAPPS_ZIP" ]; then
     # Using curl/wget with retry options to ensure reliable download
     if ! curl -L -o "$GAPPS_ZIP" "$GAPPS_URL" --fail --retry 3; then
         echo -e "${RED}Error: Failed to download GApps zip! Proceeding with fallback...${NC}"
-        # We can construct fallback blank structures to ensure build completes in case of network drop
         touch "$GAPPS_ZIP"
     fi
 fi
@@ -92,8 +95,6 @@ if [ -s "$GAPPS_ZIP" ]; then
     unzip -q -o "$GAPPS_ZIP" -d "$TEMP_GAPPS_DIR"
     
     echo -e "${BLUE}Injecting GMS and Google Play Store APKs into Android system partition...${NC}"
-    # Standard GApps contains files under system/
-    # We copy them directly into our Android container system path, matching structure
     if [ -d "$TEMP_GAPPS_DIR/system" ]; then
         cp -a "$TEMP_GAPPS_DIR/system"/* "$LXC_ROOTFS/system/"
         echo -e "${GREEN}Google Play Store & Play Services integrated successfully!${NC}"
@@ -104,9 +105,8 @@ if [ -s "$GAPPS_ZIP" ]; then
     fi
 else
     echo -e "${YELLOW}Operating in offline/fallback mode. Creating mock Play Store directory structure...${NC}"
-    # Mocking GMS/Play Store files for compilation completeness in dry-run/restricted sandboxes
     mkdir -p "$LXC_ROOTFS/system/priv-app/PrebuiltGmsCore"
-    mkdir -p "$LXC_ROOTFS/system/priv-app/Phonesky" # Google Play Store
+    mkdir -p "$LXC_ROOTFS/system/priv-app/Phonesky"
     touch "$LXC_ROOTFS/system/priv-app/PrebuiltGmsCore/PrebuiltGmsCore.apk"
     touch "$LXC_ROOTFS/system/priv-app/Phonesky/Phonesky.apk"
     echo -e "${GREEN}Mock Google Play Store & GMS directories created successfully!${NC}"
@@ -115,8 +115,8 @@ fi
 # 3. Injecting LinaDroid Custom Init Configurations
 echo -e "\n${BLUE}3. Injecting custom DRM/KMS configurations & init.rc...${NC}"
 
-# Copy custom init rules
-cp /home/user/android/init.linadroid.rc "$LXC_ROOTFS/init.linadroid.rc"
+# Copy custom init rules from dynamic portable repository path
+cp "$REPO_DIR/android/init.linadroid.rc" "$LXC_ROOTFS/init.linadroid.rc"
 
 # We append the inclusion of our custom .rc script inside Android's main init.rc
 if [ -f "$LXC_ROOTFS/init.rc" ]; then
@@ -136,12 +136,6 @@ touch "$LXC_ROOTFS/vendor/lib64/hw/hwcomposer.drm.so"
 
 # 5. Correct Permissions (Critical for Android & Google Play security model)
 echo -e "\n${BLUE}5. Applying UID/GID mappings and permissions for security...${NC}"
-# Google Play Services requires exact system/root permissions or it fails with security exceptions.
-# Standard Android permissions:
-# Directories: 755
-# Files: 644
-# User: root (or UID 0 mapped), Group: root (or GID 0 mapped)
-
 echo -e "${YELLOW}Setting permissions for system partition...${NC}"
 chown -R root:root "$LXC_ROOTFS/system" || true
 find "$LXC_ROOTFS/system" -type d -exec chmod 755 {} \; || true
