@@ -9,6 +9,12 @@ on:
       - 'v*'
   workflow_dispatch:
 
+# CRITICAL SECURITY FIX: GitHub Actions GITHUB_TOKEN has read-only permissions by default.
+# This block elevates permissions so that the workflow has permission to create 
+# GitHub Releases and upload your built OS image (.xz) automatically!
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -63,7 +69,7 @@ jobs:
           # Run the main orchestrator as root
           sudo ./build_os.sh
 
-      # CRITICAL PERMISSIONS FIX: Since "build_os.sh" was executed as sudo (root), the 5GB output image 
+      # Since "build_os.sh" was executed as sudo (root), the 5GB output image 
       # "linadroid-os-v1.0.img" is owned by the root user.
       # Running xz with 'sudo' ensures the compression tool has permission to access the file and set attributes.
       # We then chown the compressed asset back to the local runner user ($(id -u)) so that the GitHub Release 
